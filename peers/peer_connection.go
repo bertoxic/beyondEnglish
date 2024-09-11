@@ -18,6 +18,7 @@ func NewPeerConnection(configuration webrtc.Configuration) (*PeerConnection, err
 
 	return &PeerConnection{pc: pc}, nil
 }
+
 func (p *PeerConnection) Close() error {
 	if p.pc == nil {
 		return fmt.Errorf("peer connection is nil")
@@ -28,10 +29,9 @@ func (p *PeerConnection) Close() error {
 		return fmt.Errorf("error closing peer connection: %w", err)
 	}
 
-	// If you have other resources to clean up, do it here.
-
 	return nil
 }
+
 func (p *PeerConnection) AddTrack(track *webrtc.TrackLocalStaticSample) (*webrtc.RTPSender, error) {
 	return p.pc.AddTrack(track)
 }

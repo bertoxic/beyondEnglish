@@ -59,7 +59,7 @@ function createRoom() {
     if (!roomName) return;
 
     setupLocalStream().then(() => {
-        ws.send(JSON.stringify({ type: 'create', data: { roomName } }));
+        ws.send(JSON.stringify({ type: 'create', data: {"roomName": roomName } }));
         console.log('Created room:', roomName);
     });
 }
@@ -69,7 +69,7 @@ function joinRoom() {
     if (!roomName) return;
 
     setupLocalStream().then(() => {
-        ws.send(JSON.stringify({ type: 'join', data: { roomName } }));
+        ws.send(JSON.stringify({ type: 'join',  data: {"roomName": roomName } }));
         console.log('Joined room:', roomName);
     });
 }
@@ -78,7 +78,7 @@ function leaveRoom() {
     const roomName = roomInput.value;
     if (!roomName) return;
 
-    ws.send(JSON.stringify({ type: 'leave', data: { roomName } }));
+    ws.send(JSON.stringify({ type: 'leave',  data: {"roomName": roomName } }));
     cleanupRTC();
     console.log('Left room:', roomName);
 }
@@ -129,7 +129,7 @@ function createPeerConnection(peerID) {
         if (event.candidate) {
             ws.send(JSON.stringify({
                 type: 'ice-candidate',
-                data: { candidate: event.candidate, peerID }
+                data: { candidate: event.candidate, peerID: peerID, roomName: roomInput.value }
             }));
         }
     };

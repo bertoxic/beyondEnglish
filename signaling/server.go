@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v3"
 )
 
 type Server struct {
@@ -167,7 +168,6 @@ func (s *Server) handleMessage(conn *websocket.Conn, msg []byte) {
 		log.Println("message is create")
 		log.Println(message.Data)
 		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
-
 		if !ok {
 			log.Println("Invalid room data in create message")
 			return
@@ -198,7 +198,22 @@ func (s *Server) handleMessage(conn *websocket.Conn, msg []byte) {
 			log.Println("Invalid room data in offer message")
 			return
 		}
-		offer := message.Data.(map[string]interface{})["offer"]
+		//offer := message.Data.(map[string]interface{})["offer"]
+		offerMap, ok := message.Data.(map[string]interface{})["offer"].(map[string]interface{})
+		if !ok {
+			log.Printf("Invalid offer format in offer message")
+			return
+		}
+		offerJSON, err := json.Marshal(offerMap)
+		if err != nil {
+			log.Printf("Error marshaling offer to JSON: %v", err)
+			return
+		}
+		var offer webrtc.SessionDescription
+		if err := json.Unmarshal(offerJSON, &offer); err != nil {
+			log.Printf("Error unmarshaling offer: %v", err)
+			return
+		}
 		s.handleOffer(conn, room, offer)
 	case "answer":
 		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
@@ -206,19 +221,72 @@ func (s *Server) handleMessage(conn *websocket.Conn, msg []byte) {
 			log.Println("Invalid room data in answer message")
 			return
 		}
+
 		answer := message.Data.(map[string]interface{})["answer"]
 		s.handleAnswer(conn, room, answer)
 	case "ice-candidate":
-		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
+		// room, ok := message.Data.(map[string]interface{})["roomName"].(string)
+		// if !ok {
+		// 	log.Println("Invalid room data in ice-candidate message")
+		// 	return
+		// }
+		// candidate := message.Data.(map[string]interface{})["candidate"]
+		log.Printf("Received ice-candidate message data: %+v", message.Data)
+
+		// Try to cast the message.Data to a map
+		candidateData, ok := message.Data.(map[string]interface{})
 		if !ok {
-			log.Println("Invalid room data in ice-candidate message")
+			log.Printf("Invalid data format for ice-candidate message. Data: %+v", message.Data)
 			return
 		}
-		candidate := message.Data.(map[string]interface{})["candidate"]
-		s.handleICECandidate(conn, room, candidate)
+
+		// Check if roomName exists and is a string
+		roomID, ok := candidateData["roomName"].(string)
+		if !ok || roomID == "" {
+			log.Printf("Invalid or missing room name in ice-candidate message. RoomName: %+v", candidateData["roomName"])
+			return
+		}
+
+		// Continue processing the ice-candidate
+		candidateMap, ok := candidateData["candidate"].(map[string]interface{})
+		if !ok {
+			log.Printf("Invalid candidate format. Data: %+v", candidateData["candidate"])
+			return
+		}
+
+		candidate := webrtc.ICECandidateInit{
+			Candidate:        getStringFromMap(candidateMap, "candidate"),
+			SDPMid:           getStringPointerFromMap(candidateMap, "sdpMid"),
+			SDPMLineIndex:    getUint16PointerFromMap(candidateMap, "sdpMLineIndex"),
+			UsernameFragment: getStringPointerFromMap(candidateMap, "usernameFragment"),
+		}
+
+		s.handleICECandidate(conn, roomID, candidate)
 	default:
 		log.Println("Unknown message type:", message.Type)
 	}
+}
+
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if val, ok := m[key].(string); ok {
+		return val
+	}
+	return ""
+}
+
+func getStringPointerFromMap(m map[string]interface{}, key string) *string {
+	if val, ok := m[key].(string); ok {
+		return &val
+	}
+	return nil
+}
+
+func getUint16PointerFromMap(m map[string]interface{}, key string) *uint16 {
+	if val, ok := m[key].(float64); ok {
+		uVal := uint16(val)
+		return &uVal
+	}
+	return nil
 }
 func (s *Server) handleAnswer(conn *websocket.Conn, room string, answer interface{}) {
 	s.mutex.RLock()
@@ -415,9 +483,9 @@ func (s *Server) broadcastToRoom(sender *websocket.Conn, room string, message []
 	log.Print("broadcasting to room HELLLPP")
 	if connections, ok := s.rooms[room]; ok {
 		for conn := range connections {
-			//if conn != sender {
-			conn.WriteMessage(websocket.TextMessage, message)
-			//}
+			if conn != sender {
+				conn.WriteMessage(websocket.TextMessage, message)
+			}
 		}
 	} else {
 

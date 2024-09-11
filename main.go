@@ -12,7 +12,6 @@ import (
 
 	"github.com/bertoxic/beyondEnglish/peers"
 	"github.com/bertoxic/beyondEnglish/signaling"
-
 )
 
 type Server struct {
@@ -54,7 +53,7 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	print("Request to handlecreateroom")
-	roomID := s.peerManager.CreateRoom()
+	roomID := s.peerManager.CreateRoom("100")
 	json.NewEncoder(w).Encode(map[string]string{"roomID": roomID})
 }
 
