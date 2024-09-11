@@ -12,6 +12,7 @@ import (
 
 	"github.com/bertoxic/beyondEnglish/peers"
 	"github.com/bertoxic/beyondEnglish/signaling"
+
 )
 
 type Server struct {
@@ -64,7 +65,8 @@ func (s *Server) renderhomepage(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
-	renderHTMLTemplates(w, "template.html", nil)
+	//renderHTMLTemplates(w, "template.html", nil)
+	renderHTMLTemplates(w, "template/videoconf.html", nil)
 	x, err := os.Getwd()
 	if err != nil {
 		println("error occureeed")
@@ -97,8 +99,9 @@ func (s *Server) handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	server := NewServer()
-
-	fmt.Println("Server starting on :8080")
+	//http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	server.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	fmt.Println("Server starting on :8080 o")
 	log.Fatal(http.ListenAndServe(":8080", server.router))
 }
 

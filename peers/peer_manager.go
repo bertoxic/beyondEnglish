@@ -14,6 +14,7 @@ import (
 	//"github.com/bertoxic/beyondEnglish/media"
 	"github.com/bertoxic/beyondEnglish/signaling"
 	"github.com/bertoxic/beyondEnglish/storage"
+
 )
 
 type Room struct {
@@ -26,6 +27,7 @@ type PeerManager struct {
 	signalingServer *signaling.Server
 	rooms           map[string]*Room
 	mutex           sync.Mutex
+	client *signaling.Client
 }
 
 func NewPeerManager(signalingServer *signaling.Server) *PeerManager {
@@ -81,24 +83,43 @@ func (pm *PeerManager) JoinRoom(roomID string, peerID string) error {
 	}
 
 	room.Peers[peerID] = peerConnection
-
+		////////////////////////////////////////////////////////////////////////////////////////////
 	// Set up event handlers for the peer connection
 	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
 		}
+		    // Create the offer
+			offer, err := peerConnection.CreateOffer()
+			if err != nil {
+				log.Printf("Failed to create offer: %v", err)
+				return
+			}
+	
+			err = peerConnection.SetLocalDescription(*offer)
+			if err != nil {
+				log.Printf("Failed to set local description: %v", err)
+				return
+			}
 		pm.signalingServer.SendToPeer(peerID, signaling.Message{
-			Type: "ice-candidate",
-			Data: c.ToJSON(),
+            Type: "offer",
+            Data: map[string]interface{}{
+                "roomID": roomID,
+                "peerID": peerID,
+                "offer":  offer,
+            },
+        })
+		
 		})
-	})
-
+			////////////////////////////////////////////////////////////////////////////////////////////////
 	peerConnection.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		log.Printf("Received remote track from peer %s in room %s", peerID, roomID)
 		if room.Recorder != nil {
 			room.Recorder.AddTrack(remoteTrack)
 		}
 	})
+
+
 
 	return nil
 }
@@ -229,10 +250,10 @@ func (pm *PeerManager) handleSignalingMessage(message signaling.Message) {
 func (pm *PeerManager) handleOffer(roomID string, peerID string, offer webrtc.SessionDescription) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-
+		
 	room, exists := pm.rooms[roomID]
 	if !exists {
-		log.Printf("Room %s does not exist", roomID)
+		log.Printf("Room %s does not exist ok", roomID)
 		return
 	}
 
@@ -248,22 +269,44 @@ func (pm *PeerManager) handleOffer(roomID string, peerID string, offer webrtc.Se
 		return
 	}
 
+	// answer, err := peerConnection.CreateAnswer(nil)
+	// if err != nil {
+	// 	log.Printf("Failed to create answer: %v", err)
+	// 	return
+	// }
+
+	// err = peerConnection.SetLocalDescription(*answer)
+	// if err != nil {
+	// 	log.Printf("Failed to set local description: %v", err)
+	// 	return
+	// }
+
+	// pm.signalingServer.SendToPeer(peerID, signaling.Message{
+	// 	Type: "answer",
+	// 	Data: answer,
+	// })
+
 	answer, err := peerConnection.CreateAnswer(nil)
-	if err != nil {
-		log.Printf("Failed to create answer: %v", err)
-		return
-	}
+    if err != nil {
+        log.Printf("Failed to create answer: %v", err)
+        return
+    }
 
-	err = peerConnection.SetLocalDescription(*answer)
-	if err != nil {
-		log.Printf("Failed to set local description: %v", err)
-		return
-	}
+    err = peerConnection.SetLocalDescription(*answer)
+    if err != nil {
+        log.Printf("Failed to set local description: %v", err)
+        return
+    }
 
-	pm.signalingServer.SendToPeer(peerID, signaling.Message{
-		Type: "answer",
-		Data: answer,
-	})
+    // Send the answer to the signaling server
+    pm.signalingServer.SendToPeer(peerID, signaling.Message{
+        Type: "answer",
+        Data: map[string]interface{}{
+            "roomID": roomID,
+            "peerID": peerID,
+            "answer": answer,
+        },
+    })
 }
 
 func (pm *PeerManager) handleAnswer(roomID string, peerID string, answer webrtc.SessionDescription) {
@@ -272,7 +315,7 @@ func (pm *PeerManager) handleAnswer(roomID string, peerID string, answer webrtc.
 
 	room, exists := pm.rooms[roomID]
 	if !exists {
-		log.Printf("Room %s does not exist", roomID)
+		log.Printf("Room %s does not exist ok2", roomID)
 		return
 	}
 
@@ -295,7 +338,7 @@ func (pm *PeerManager) handleICECandidate(roomID string, peerID string, candidat
 
 	room, exists := pm.rooms[roomID]
 	if !exists {
-		log.Printf("Room %s does not exist", roomID)
+		log.Printf("Room %s does not exist ok3", roomID)
 		return
 	}
 

@@ -44,7 +44,8 @@
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.3.2/socket.io.min.js"></script> -->
     <script>
         //const socket = io('http://localhost:8080');
-        const socket = new WebSocket('ws://localhost:8080/ws');
+       // const socket = new WebSocket('ws://localhost:8080/ws');
+        const socket = new WebSocket('ws://192.168.88.190:8080/ws');
         const localVideo = document.getElementById('localVideo');
         const videoContainer = document.getElementById('videoContainer');
         const roomInput = document.getElementById('roomInput');
@@ -80,7 +81,7 @@
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     socket.send(JSON.stringify({ type: 'ice-candidate', data: { roomName: room } }));
-                    socket.emit('ice-candidate', { peerId, candidate: event.candidate });
+                    //socket.emit('ice-candidate', { peerId, candidate: event.candidate });
                 }
             };
 
@@ -107,7 +108,7 @@
         joinBtn.addEventListener('click', () => {
             const room = roomInput.value;
             if (room) {
-               // socket.emit('join', { room });
+               //socket.emit('join', { room });
                 socket.send(JSON.stringify({ type: 'join', data: { roomName: room } }));
                 currentRoom = room;
             }
@@ -115,7 +116,7 @@
 
         leaveBtn.addEventListener('click', () => {
             if (currentRoom) {
-                //socket.emit('leave', { room: currentRoom });
+               // socket.emit('leave', { room: currentRoom });
                 socket.send(JSON.stringify({ type: 'leave', data: { roomName: currentRoom } }));
                 currentRoom = null;
                 // Clean up peer connections and remove remote videos
@@ -129,6 +130,7 @@
         });
 
         socket.addEventListener('user-joined', async (data) => {
+            
             const peerConnection = createPeerConnection(data.peerId);
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
@@ -142,7 +144,7 @@
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             socket.send(JSON.stringify({ type: 'create', data: { roomName: room } }));
-            //socket.emit('answer', { peerId: data.peerId, answer });
+           // socket.emit('answer', { peerId: data.peerId, answer });
         });
 
         socket.addEventListener('answer', async (data) => {
@@ -165,6 +167,45 @@
         });
 
         setupLocalStream();
+
+        socket.addEventListener('message', async (event) => {
+    const message = JSON.parse(event.data);
+    switch (message.type) {
+        case 'user-joined':
+            const peerConnection = createPeerConnection(message.data.peerId);
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.send(JSON.stringify({ type: 'offer', data: { roomName: room } }));
+            break;
+        case 'offer':
+            const peerConnectionOffer = createPeerConnection(message.data.peerId);
+            await peerConnectionOffer.setRemoteDescription(new RTCSessionDescription(message.data.offer));
+            const answer = await peerConnectionOffer.createAnswer();
+            await peerConnectionOffer.setLocalDescription(answer);
+            socket.send(JSON.stringify({ type: 'create', data: { roomName: room } }));
+            break;
+        case 'answer':
+            const peerConnectionAnswer = peerConnections[message.data.peerId];
+            await peerConnectionAnswer.setRemoteDescription(new RTCSessionDescription(message.data.answer));
+            break;
+        case 'ice-candidate':
+            const peerConnectionIce = peerConnections[message.data.peerId];
+            peerConnectionIce.addIceCandidate(new RTCIceCandidate(message.data.candidate));
+            break;
+        case 'leave':
+            if (peerConnections[message.data.peerId]) {
+                peerConnections[message.data.peerId].close();
+                delete peerConnections[message.data.peerId];
+                const remoteVideo = document.getElementById(`remote-${message.data.peerId}`);
+                if (remoteVideo) remoteVideo.remove();
+            }
+            case 'error':
+                    console.log(message.message);
+            break;
+        default:
+            console.log('Unknown message type:', message.type);
+    }
+});
     </script>
 </body>
 </html>

@@ -42,6 +42,7 @@ func (c *Client) JoinRoom(roomName string) error {
 			"roomName": roomName,
 		},
 	}
+	
 	return c.sendJSON(message)
 }
 
@@ -126,12 +127,10 @@ func (c *Client) writePump() {
 	}
 }
 
-func (c *Client) SendOffer(roomName, perrID string, offer interface{}) error {
-	message := map[string]interface{}{
-		"type": "offer",
-		// "roomName": roomName,
-		// "offer":    offer,
-		"data": map[string]interface{}{
+func (c *Client) SendOffer(roomName string, offer interface{}) error {
+	message := Message{
+		Type: "offer",
+		Data: map[string]interface{}{
 			"roomName": roomName,
 			"offer":    offer,
 		},
@@ -140,11 +139,9 @@ func (c *Client) SendOffer(roomName, perrID string, offer interface{}) error {
 }
 
 func (c *Client) SendAnswer(roomName string, answer interface{}) error {
-	message := map[string]interface{}{
-		"type": "answer",
-		// "roomName": roomName,
-		// "answer":   answer,
-		"data": map[string]interface{}{
+	message := Message{
+		Type: "answer",
+		Data: map[string]interface{}{
 			"roomName": roomName,
 			"answer":   answer,
 		},
@@ -153,13 +150,11 @@ func (c *Client) SendAnswer(roomName string, answer interface{}) error {
 }
 
 func (c *Client) SendICECandidate(roomName string, candidate interface{}) error {
-	message := map[string]interface{}{
-		"type": "ice-candidate",
-		// "roomName":  roomName,
-		// "candidate": candidate,
-		"data": map[string]interface{}{
+	message := Message{
+		Type: "ice-candidate",
+		Data: map[string]interface{}{
 			"roomName": roomName,
-			"offer":    candidate,
+			"candidate": candidate,
 		},
 	}
 	return c.sendJSON(message)

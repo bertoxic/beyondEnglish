@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Conferencing</title>
+    <style>
+        #controls {
+            margin-bottom: 20px;
+        }
+        #videoContainer {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        video {
+            width: 300px;
+            height: 225px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Video Conferencing</h1>
+    
+    <div id="controls">
+        <button id="createRoom">Create Room</button>
+        <button id="joinRoom">Join Room</button>
+        <button id="leaveRoom">Leave Room</button>
+        <input type="text" id="roomInput" placeholder="Enter room name">
+    </div>
+
+    <div id="videoContainer"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

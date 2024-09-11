@@ -2,6 +2,7 @@ package signaling
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -75,6 +76,7 @@ func (s *Server) AddPeer(peerID string, conn *websocket.Conn) {
 
 	// Add the peer to the map
 	s.peers[peerID] = conn
+	print(fmt.Sprintf("Added peer %s", peerID))
 }
 
 func (s *Server) RemovePeer(peerID string) {
@@ -83,6 +85,19 @@ func (s *Server) RemovePeer(peerID string) {
 
 	// Remove the peer from the map
 	delete(s.peers, peerID)
+}
+func (s *Server) GetPeerIDByConn(conn *websocket.Conn) (string, bool) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for peerID, peerConn := range s.peers {
+		if peerConn == conn {
+			return peerID, true
+		}
+	}
+
+	// Return false if no matching connection is found
+	return "", false
 }
 
 // Update handleMessage to use the new Message type and call the messageHandler
@@ -120,7 +135,10 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Add the peer to the server
 	s.AddPeer(peerID, conn)
-
+	conn.WriteJSON(Message{
+		Type: "peer-id",
+		Data: map[string]interface{}{"peerID": peerID},
+	})
 	defer s.RemovePeer(peerID)
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -174,15 +192,96 @@ func (s *Server) handleMessage(conn *websocket.Conn, msg []byte) {
 			return
 		}
 		s.handleLeave(conn, room)
-	case "offer", "answer", "ice-candidate":
+	case "offer":
 		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
 		if !ok {
-			log.Println("Invalid room data in signaling message")
+			log.Println("Invalid room data in offer message")
 			return
 		}
-		s.broadcastToRoom(conn, room, msg)
+		offer := message.Data.(map[string]interface{})["offer"]
+		s.handleOffer(conn, room, offer)
+	case "answer":
+		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
+		if !ok {
+			log.Println("Invalid room data in answer message")
+			return
+		}
+		answer := message.Data.(map[string]interface{})["answer"]
+		s.handleAnswer(conn, room, answer)
+	case "ice-candidate":
+		room, ok := message.Data.(map[string]interface{})["roomName"].(string)
+		if !ok {
+			log.Println("Invalid room data in ice-candidate message")
+			return
+		}
+		candidate := message.Data.(map[string]interface{})["candidate"]
+		s.handleICECandidate(conn, room, candidate)
 	default:
 		log.Println("Unknown message type:", message.Type)
+	}
+}
+func (s *Server) handleAnswer(conn *websocket.Conn, room string, answer interface{}) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	if connections, ok := s.rooms[room]; ok {
+		for otherConn := range connections {
+			if otherConn != conn {
+				message := Message{
+					Type: "answer",
+					Data: map[string]interface{}{
+						"roomName": room,
+						"answer":   answer,
+					},
+				}
+				if err := otherConn.WriteJSON(message); err != nil {
+					log.Printf("error sending answer to peer: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func (s *Server) handleICECandidate(conn *websocket.Conn, room string, candidate interface{}) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	if connections, ok := s.rooms[room]; ok {
+		for otherConn := range connections {
+			if otherConn != conn {
+				message := Message{
+					Type: "ice-candidate",
+					Data: map[string]interface{}{
+						"roomName":  room,
+						"candidate": candidate,
+					},
+				}
+				if err := otherConn.WriteJSON(message); err != nil {
+					log.Printf("error sending ICE candidate to peer: %v", err)
+				}
+			}
+		}
+	}
+}
+func (s *Server) handleOffer(conn *websocket.Conn, room string, offer interface{}) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	if connections, ok := s.rooms[room]; ok {
+		for otherConn := range connections {
+			if otherConn != conn {
+				message := Message{
+					Type: "offer",
+					Data: map[string]interface{}{
+						"roomName": room,
+						"offer":    offer,
+					},
+				}
+				if err := otherConn.WriteJSON(message); err != nil {
+					log.Printf("error sending offer to peer: %v", err)
+				}
+			}
+		}
 	}
 }
 
@@ -200,12 +299,34 @@ func (s *Server) handleCreate(conn *websocket.Conn, roomName string) {
 	s.rooms[roomName] = make(map[*websocket.Conn]bool)
 	log.Printf("Room %s created", roomName)
 
+	var peerID string
+	for id, peerConn := range s.peers {
+		if peerConn == conn {
+			peerID = id
+			break
+		}
+	}
+
 	// Auto-join the creator to the room
 	s.rooms[roomName][conn] = true
-	log.Printf("Connection auto-joined to room %s", roomName)
+	log.Printf("Connection about to user %s auto-joined to room %s", peerID, roomName)
 
 	// Notify other users (if any) about the new user
-	s.broadcastToRoom(conn, roomName, []byte(`{"type": "user-joined", "roomName": "`+roomName+`"}`))
+	data := map[string]string{"peerID": peerID, "roomName": roomName}
+	message := Message{
+		Type: "user-joined",
+		Data: data,
+	}
+	messageBytes, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshalling message: %v", err)
+		return
+	}
+	//s.broadcastToRoom(conn, roomName, []byte(fmt.Sprintf(`{"type": "user-joined", "data": {"peerID": "%s", "roomName": "%s"}}`, peerID, roomName)))
+	s.broadcastToRoom(conn, roomName, messageBytes)
+
+	log.Printf("Connection has now auto-joined to room %s", roomName)
+
 }
 
 func (s *Server) handleJoin(conn *websocket.Conn, room string) {
@@ -216,19 +337,53 @@ func (s *Server) handleJoin(conn *websocket.Conn, room string) {
 	// 	s.rooms[room] = make(map[*websocket.Conn]bool)
 	// }
 	if _, ok := s.rooms[room]; !ok {
-		log.Printf("Room %s does not exist", room)
-		conn.WriteMessage(websocket.TextMessage, []byte(`{"type": "error", "message": "Room does not exist"}`))
-		return
+		log.Printf("Room %s does not exist ohh", room)
+		log.Print("rooom lissst is...", s.rooms)
+		err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type": "error", "message": "Room does not exist oo"}`))
+		if err != nil {
+			log.Printf("error sending error message to peer: %v", err)
+			return
+		}
+
 	}
+
 	s.rooms[room][conn] = true
 
+	// Find the peerID for this connection
+	var peerID string
+	for id, peerConn := range s.peers {
+		if peerConn == conn {
+			peerID = id
+			break
+		}
+	}
+
 	// Notify other users in the room about the new user
-	s.broadcastToRoom(conn, room, []byte(`{"type": "user-joined"}`))
+	for otherConn := range s.rooms[room] {
+		if otherConn != conn {
+			otherConn.WriteJSON(Message{
+				Type: "user-joined",
+				Data: map[string]interface{}{
+					"peerID":   peerID,
+					"roomName": room,
+				},
+			})
+		}
+	}
+
+	log.Printf("Userboss %s joined room: %s", peerID, room)
+
+	s.broadcastToRoom(conn,
+		room,
+		[]byte(fmt.Sprintf(`{"type": "user-joined", "data": {"peerID": "%s"}}`, peerID)))
+
 }
 
 func (s *Server) handleLeave(conn *websocket.Conn, room string) {
 	s.removeConnection(conn)
 	s.broadcastToRoom(conn, room, []byte(`{"type": "user-left"}`))
+	log.Printf("User %s left room: %s", s.peers, room)
+
 }
 
 func (s *Server) removeConnection(conn *websocket.Conn) {
@@ -254,14 +409,18 @@ func (s *Server) removeConnection(conn *websocket.Conn) {
 }
 
 func (s *Server) broadcastToRoom(sender *websocket.Conn, room string, message []byte) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
+	log.Print("broadcasting to room 000y HELLLPP")
+	// s.mutex.Lock()
+	// defer s.mutex.Unlock()
+	log.Print("broadcasting to room HELLLPP")
 	if connections, ok := s.rooms[room]; ok {
 		for conn := range connections {
-			if conn != sender {
-				conn.WriteMessage(websocket.TextMessage, message)
-			}
+			//if conn != sender {
+			conn.WriteMessage(websocket.TextMessage, message)
+			//}
 		}
+	} else {
+
+		log.Print("did not broadcast to room HELLLPP")
 	}
 }
